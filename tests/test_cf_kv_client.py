@@ -108,7 +108,7 @@ class TestFetchConfig:
     def test_basic_fetch(self, mock_requests):
         kv_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 22,
                 "roomOffsets": {"LDK": 0},
                 "updatedAt": "2026-02-25T11:04:41.596Z",
@@ -122,7 +122,7 @@ class TestFetchConfig:
         result = client.fetch_config()
 
         assert isinstance(result, KvResult)
-        assert result.config.mode == "auto-steady"
+        assert result.config.mode == "heat"
         assert result.config.base_temp == 22
         assert result.updated_at == 1772103881
         assert result.process_time == 1772280000
@@ -132,7 +132,7 @@ class TestFetchConfig:
     def test_auth_header_sent(self, mock_requests):
         kv_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 20,
                 "roomOffsets": {},
             }
@@ -155,7 +155,7 @@ class TestFetchConfig:
     def test_response_close_called(self, mock_requests):
         kv_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 20,
                 "roomOffsets": {},
             }
@@ -210,7 +210,7 @@ class TestUpdateCurrentSettings:
 
         raw_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 22,
                 "roomOffsets": {"Room1": 0},
             }
@@ -243,7 +243,7 @@ class TestUpdateCurrentSettings:
 
         raw_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 22,
                 "roomOffsets": {"Room1": 0},
             }
@@ -271,7 +271,7 @@ class TestUpdateCurrentSettings:
 
         raw_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 20,
                 "roomOffsets": {},
             }
@@ -280,7 +280,7 @@ class TestUpdateCurrentSettings:
         client.update_current_settings(
             raw_data=raw_data,
             current_state={
-                "mode": "auto-steady", "base_temp": 20,
+                "mode": "heat", "base_temp": 20,
                 "room_names": [], "room_adjust": [],
             },
         )
@@ -293,7 +293,7 @@ class TestUpdateCurrentSettings:
 
         raw_data = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 20,
                 "roomOffsets": {"リビング": 0},  # multi-byte chars
             }
@@ -302,7 +302,7 @@ class TestUpdateCurrentSettings:
         client.update_current_settings(
             raw_data=raw_data,
             current_state={
-                "mode": "auto-steady", "base_temp": 20,
+                "mode": "heat", "base_temp": 20,
                 "room_names": ["リビング"], "room_adjust": [2],
             },
         )

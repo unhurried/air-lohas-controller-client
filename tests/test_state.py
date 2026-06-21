@@ -13,14 +13,14 @@ class TestLoopState:
 
     def test_update(self):
         s = LoopState()
-        settings = {"mode": "auto-steady", "base_temp": 22, "rooms": {}}
+        settings = {"mode": "heat", "base_temp": 22, "rooms": {}}
         s.update(1000, settings)
         assert s.last_process_time == 1000
         assert s.last_settings == settings
 
     def test_multiple_updates(self):
         s = LoopState()
-        s.update(100, {"mode": "auto-steady"})
+        s.update(100, {"mode": "heat"})
         s.update(200, {"mode": "auto-save"})
         assert s.last_process_time == 200
         assert s.last_settings["mode"] == "auto-save"

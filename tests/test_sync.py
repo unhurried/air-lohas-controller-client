@@ -30,8 +30,8 @@ class TestIsPowerOff:
     def test_dash_is_power_off(self):
         assert is_power_off("-") is True
 
-    def test_auto_steady_not_off(self):
-        assert is_power_off("auto-steady") is False
+    def test_heat_not_off(self):
+        assert is_power_off("heat") is False
 
     def test_auto_save_not_off(self):
         assert is_power_off("auto-save") is False
@@ -45,12 +45,12 @@ class TestIsPowerOff:
 # ---------------------------------------------------------------------------
 
 class TestSettingsDiffer:
-    def _config(self, mode="auto-steady", base_temp=22, rooms=None):
+    def _config(self, mode="heat", base_temp=22, rooms=None):
         return Config(mode=mode, base_temp=base_temp, rooms=rooms or {})
 
     def test_same_settings(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": ["Room1"],
             "room_adjust": [2],
@@ -60,7 +60,7 @@ class TestSettingsDiffer:
 
     def test_mode_differs(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": [],
             "room_adjust": [],
@@ -70,7 +70,7 @@ class TestSettingsDiffer:
 
     def test_base_temp_differs(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": [],
             "room_adjust": [],
@@ -80,7 +80,7 @@ class TestSettingsDiffer:
 
     def test_room_adjust_differs(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": ["Room1"],
             "room_adjust": [2],
@@ -111,7 +111,7 @@ class TestSettingsDiffer:
 
     def test_none_base_temp_skipped(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": None,
             "room_names": [],
             "room_adjust": [],
@@ -122,7 +122,7 @@ class TestSettingsDiffer:
     def test_unknown_room_in_config(self):
         """Room in config but not in aircon is not flagged as different."""
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": ["Room1"],
             "room_adjust": [2],
@@ -139,16 +139,16 @@ class TestSettingsDiffer:
 class TestSettingsConversion:
     def test_settings_from_aircon(self):
         current = {
-            "mode": "auto-steady",
+            "mode": "heat",
             "base_temp": 22,
             "room_names": ["Room1", "", "Room3"],
             "room_adjust": [2, 0, 3],
         }
         result = settings_from_aircon(current)
-        assert result["mode"] == "auto-steady"
+        assert result["mode"] == "heat"
         assert result["base_temp"] == 22
         assert "Room1" in result["rooms"]
-        assert "" not in result["rooms"]  # empty names skipped
+        assert "" not in result["rooms"]
         assert "Room3" in result["rooms"]
 
     def test_settings_from_config(self):
@@ -237,27 +237,27 @@ class TestBuildAdjustFromCurrent:
 # ---------------------------------------------------------------------------
 
 class TestApplyKvToAircon:
-    def _make_current(self, mode="auto-steady", base_temp=22,
-                      room_names=None, room_adjust=None):
+    def _make_current(self, mode="heat", base_temp=22,
+                      room_names=None, room_adjust=None, cool_flg=None):
         return {
             "mode": mode,
             "base_temp": base_temp,
             "room_names": room_names or [],
             "room_adjust": room_adjust or [],
+            "cool_flg": cool_flg,
         }
 
     def test_power_off(self):
         client = MagicMock()
         power_client = MagicMock()
-        current = self._make_current(mode="auto-steady")
+        current = self._make_current(mode="heat")
         config = Config(mode="-", base_temp=22, rooms={})
 
         apply_kv_to_aircon(client, power_client, current, config)
 
         power_client.power_off.assert_called_once()
         power_client.power_on.assert_not_called()
-        # No mode/temp setting calls
-        client.set_auto_steady.assert_not_called()
+        client.set_heat.assert_not_called()
         client.set_base_temp.assert_not_called()
 
     def test_power_off_already_off(self):
@@ -268,7 +268,7 @@ class TestApplyKvToAircon:
 
         apply_kv_to_aircon(client, power_client, current, config)
 
-        power_client.power_off.assert_not_called()  # already off
+        power_client.power_off.assert_not_called()
 
     def test_power_on_from_off(self):
         client = MagicMock()
@@ -279,7 +279,7 @@ class TestApplyKvToAircon:
             room_adjust=[2],
         )
         config = Config(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             rooms={"Room1": 3},
         )
@@ -287,14 +287,35 @@ class TestApplyKvToAircon:
         apply_kv_to_aircon(client, power_client, current, config)
 
         power_client.power_on.assert_called_once()
-        client.set_auto_steady.assert_called_once()
+        client.set_heat.assert_called_once()
         client.set_base_temp.assert_called_once_with(22)
-        client.set_room_adjust.assert_called_once()
+        client.set_room_adjust.assert_called_once_with([3], mode="heat")
 
-    def test_mode_change_auto_steady_to_save(self):
+    def test_power_on_from_off_feeds_watchdog_before_each_request(self):
         client = MagicMock()
         power_client = MagicMock()
-        current = self._make_current(mode="auto-steady")
+        feed_wdt = MagicMock()
+        current = self._make_current(
+            mode="-",
+            room_names=["Room1"],
+            room_adjust=[2],
+        )
+        config = Config(
+            mode="heat",
+            base_temp=22,
+            rooms={"Room1": 3},
+        )
+
+        apply_kv_to_aircon(
+            client, power_client, current, config, feed_wdt=feed_wdt
+        )
+
+        assert feed_wdt.call_count == 4
+
+    def test_mode_change_heat_to_save(self):
+        client = MagicMock()
+        power_client = MagicMock()
+        current = self._make_current(mode="heat")
         config = Config(mode="auto-save", base_temp=22, rooms={})
 
         apply_kv_to_aircon(client, power_client, current, config)
@@ -303,11 +324,23 @@ class TestApplyKvToAircon:
         power_client.power_on.assert_not_called()
         power_client.power_off.assert_not_called()
 
+    def test_mode_change_heat_to_cool(self):
+        client = MagicMock()
+        power_client = MagicMock()
+        current = self._make_current(mode="heat")
+        config = Config(mode="cool", base_temp=22, rooms={})
+
+        apply_kv_to_aircon(client, power_client, current, config)
+
+        client.set_cool.assert_called_once()
+        power_client.power_on.assert_not_called()
+        power_client.power_off.assert_not_called()
+
     def test_base_temp_change(self):
         client = MagicMock()
         power_client = MagicMock()
-        current = self._make_current(mode="auto-steady", base_temp=20)
-        config = Config(mode="auto-steady", base_temp=24, rooms={})
+        current = self._make_current(mode="heat", base_temp=20)
+        config = Config(mode="heat", base_temp=24, rooms={})
 
         apply_kv_to_aircon(client, power_client, current, config)
 
@@ -317,38 +350,79 @@ class TestApplyKvToAircon:
         client = MagicMock()
         power_client = MagicMock()
         current = self._make_current(
-            mode="auto-steady",
+            mode="heat",
             room_names=["A", "B"],
             room_adjust=[2, 2],
         )
         config = Config(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             rooms={"A": 2, "B": 4},
         )
 
         apply_kv_to_aircon(client, power_client, current, config)
 
-        client.set_room_adjust.assert_called_once_with([2, 4])
+        client.set_room_adjust.assert_called_once_with([2, 4], mode="heat")
+
+    def test_room_offsets_change_auto_save_reuses_current_cool_flg(self):
+        client = MagicMock()
+        power_client = MagicMock()
+        current = self._make_current(
+            mode="auto-save",
+            room_names=["A", "B"],
+            room_adjust=[2, 2],
+            cool_flg=0,
+        )
+        config = Config(
+            mode="auto-save",
+            base_temp=22,
+            rooms={"A": 2, "B": 4},
+        )
+
+        apply_kv_to_aircon(client, power_client, current, config)
+
+        client.set_room_adjust.assert_called_once_with(
+            [2, 4],
+            mode="auto-save",
+            current_cool_flg=0,
+        )
+
+    def test_power_on_to_auto_save_refetches_cool_flg_on_room_adjust(self):
+        client = MagicMock()
+        power_client = MagicMock()
+        current = self._make_current(
+            mode="-",
+            room_names=["Room1"],
+            room_adjust=[2],
+        )
+        config = Config(
+            mode="auto-save",
+            base_temp=22,
+            rooms={"Room1": 3},
+        )
+
+        apply_kv_to_aircon(client, power_client, current, config)
+
+        client.set_auto_save.assert_called_once()
+        client.set_room_adjust.assert_called_once_with([3], mode="auto-save")
 
     def test_no_changes_needed(self):
         client = MagicMock()
         power_client = MagicMock()
         current = self._make_current(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             room_names=["A"],
             room_adjust=[2],
         )
         config = Config(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             rooms={"A": 2},
         )
 
         apply_kv_to_aircon(client, power_client, current, config)
 
-        # Nothing should change
         power_client.power_on.assert_not_called()
         power_client.power_off.assert_not_called()
         client.set_base_temp.assert_not_called()
@@ -373,7 +447,7 @@ class TestApplyKvToAircon:
 class TestRunOnce:
     """Test full sync iteration with mocked I/O."""
 
-    def _make_kv_result(self, mode="auto-steady", base_temp=22,
+    def _make_kv_result(self, mode="heat", base_temp=22,
                         rooms=None, updated_at=1000, process_time=2000):
         config = Config(
             mode=mode,
@@ -394,7 +468,7 @@ class TestRunOnce:
             raw_data=raw_data,
         )
 
-    def _make_current(self, mode="auto-steady", base_temp=22,
+    def _make_current(self, mode="heat", base_temp=22,
                       room_names=None, room_adjust=None):
         return {
             "mode": mode,
@@ -416,21 +490,20 @@ class TestRunOnce:
 
         run_once(state, client, power_client, kv_client)
 
-        # No aircon commands
-        client.set_auto_steady.assert_not_called()
+        client.set_heat.assert_not_called()
+        client.set_cool.assert_not_called()
         client.set_auto_save.assert_not_called()
         client.set_base_temp.assert_not_called()
         power_client.power_on.assert_not_called()
         power_client.power_off.assert_not_called()
 
-        # State updated
         assert state.last_process_time == 2000
 
     def test_kv_newer_applies_to_aircon(self):
         """When KV is newer, KV settings are applied to aircon."""
         client = MagicMock()
         client.get_current_state.return_value = self._make_current(
-            base_temp=20,  # different from KV
+            base_temp=20,
         )
         power_client = MagicMock()
 
@@ -443,46 +516,42 @@ class TestRunOnce:
         kv_client.fetch_config.return_value = kv_result
 
         state = LoopState()
-        state.last_process_time = 1000  # KV updated_at > this
+        state.last_process_time = 1000
 
         run_once(state, client, power_client, kv_client)
 
-        # Base temp should be applied
         client.set_base_temp.assert_called_once_with(24)
-        # KV should NOT be updated (KV -> aircon direction)
         kv_client.update_current_settings.assert_not_called()
 
     def test_aircon_newer_updates_kv(self):
         """When aircon is newer, aircon settings are written to KV."""
         client = MagicMock()
         client.get_current_state.return_value = self._make_current(
-            base_temp=20,  # different from KV
+            base_temp=20,
         )
         power_client = MagicMock()
 
         kv_result = self._make_kv_result(
             base_temp=24,
-            updated_at=500,    # older than last_process_time
+            updated_at=500,
             process_time=6000,
         )
         kv_client = MagicMock()
         kv_client.fetch_config.return_value = kv_result
 
         state = LoopState()
-        state.last_process_time = 1000  # KV updated_at <= this
+        state.last_process_time = 1000
 
         run_once(state, client, power_client, kv_client)
 
-        # KV should be updated with aircon settings
         kv_client.update_current_settings.assert_called_once()
-        # Aircon settings should NOT be changed
         client.set_base_temp.assert_not_called()
 
     def test_power_off_from_kv(self):
         """KV says power off -> aircon is turned off."""
         client = MagicMock()
         client.get_current_state.return_value = self._make_current(
-            mode="auto-steady",
+            mode="heat",
         )
         power_client = MagicMock()
 
@@ -516,3 +585,24 @@ class TestRunOnce:
 
         assert state.last_process_time == 9999
         assert state.last_settings is not None
+
+    def test_run_once_feeds_watchdog_around_io(self):
+        client = MagicMock()
+        client.get_current_state.return_value = self._make_current(base_temp=20)
+        power_client = MagicMock()
+        feed_wdt = MagicMock()
+
+        kv_result = self._make_kv_result(
+            base_temp=24,
+            updated_at=5000,
+            process_time=6000,
+        )
+        kv_client = MagicMock()
+        kv_client.fetch_config.return_value = kv_result
+
+        state = LoopState()
+        state.last_process_time = 1000
+
+        run_once(state, client, power_client, kv_client, feed_wdt=feed_wdt)
+
+        assert feed_wdt.call_count == 3

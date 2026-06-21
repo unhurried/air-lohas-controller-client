@@ -57,4 +57,8 @@ _network_mock = MagicMock()
 _network_mock.STA_IF = 0
 sys.modules["network"] = _network_mock
 
+# machine -> mock
+_machine_mock = MagicMock()
+sys.modules["machine"] = _machine_mock
+
 # hashlib — CPython hashlib already has md5.  Nothing to patch.

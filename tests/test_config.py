@@ -92,7 +92,7 @@ class TestRequireHelpers:
 class TestParseKvData:
     """Test parsing of KV JSON data into Config."""
 
-    def _make_raw(self, mode="auto-steady", base_temp=22, offsets=None,
+    def _make_raw(self, mode="heat", base_temp=22, offsets=None,
                   updated_at=None):
         cs = {
             "mode": mode,
@@ -105,12 +105,12 @@ class TestParseKvData:
 
     def test_basic_parse(self):
         raw = self._make_raw(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             offsets={"リビング": 0, "寝室": -1},
         )
         config, updated_at = parse_kv_data(raw)
-        assert config.mode == "auto-steady"
+        assert config.mode == "heat"
         assert config.base_temp == 22
         assert "リビング" in config.rooms
         assert "寝室" in config.rooms
@@ -142,14 +142,14 @@ class TestParseKvData:
     def test_wrapped_in_result(self):
         inner = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 20,
                 "roomOffsets": {},
             }
         }
         raw = {"result": inner}
         config, _ = parse_kv_data(raw)
-        assert config.mode == "auto-steady"
+        assert config.mode == "heat"
         assert config.base_temp == 20
 
     def test_flat_settings(self):
@@ -169,7 +169,7 @@ class TestParseKvData:
             parse_kv_data(raw)
 
     def test_missing_base_temp_raises(self):
-        raw = {"currentSettings": {"mode": "auto-steady", "roomOffsets": {}}}
+        raw = {"currentSettings": {"mode": "heat", "roomOffsets": {}}}
         with pytest.raises(ValueError):
             parse_kv_data(raw)
 
@@ -181,12 +181,12 @@ class TestParseKvData:
 class TestBuildCurrentSettingsDict:
     def test_basic_build(self):
         result = build_current_settings_dict(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             room_names=["リビング", "寝室", ""],
             room_adjust=[2, 3, 0],
         )
-        assert result["mode"] == "auto-steady"
+        assert result["mode"] == "heat"
         assert result["baseTemperature"] == 22
         assert result["roomOffsets"]["リビング"] == 0   # adjust 2 -> offset 0
         assert result["roomOffsets"]["寝室"] == 1        # adjust 3 -> offset 1
@@ -203,7 +203,7 @@ class TestBuildCurrentSettingsDict:
 
     def test_empty_rooms(self):
         result = build_current_settings_dict(
-            mode="auto-steady",
+            mode="heat",
             base_temp=22,
             room_names=[],
             room_adjust=[],
@@ -254,7 +254,7 @@ class TestBuildCurrentSettingsDictModeOnly:
     def test_preserves_temps(self):
         raw = {
             "currentSettings": {
-                "mode": "auto-steady",
+                "mode": "heat",
                 "baseTemperature": 22,
                 "roomOffsets": {"Room1": 0},
             }

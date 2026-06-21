@@ -122,7 +122,7 @@ def build_current_settings_dict(mode, base_temp, room_names, room_adjust):
     """Build a currentSettings dict from aircon state for KV write-back.
 
     Args:
-        mode: Mode string (e.g. 'auto-steady').
+        mode: Mode string (e.g. 'heat').
         base_temp: Base temperature integer.
         room_names: List of room name strings.
         room_adjust: List of adjust values (0-4 or 255).

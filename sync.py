@@ -9,6 +9,11 @@ def is_power_off(mode):
     return mode == MODE_POWER_OFF
 
 
+def _feed_watchdog(feed_wdt):
+    if feed_wdt is not None:
+        feed_wdt()
+
+
 # ---------------------------------------------------------------------------
 # Settings comparison
 # ---------------------------------------------------------------------------
@@ -107,11 +112,23 @@ def build_adjust_from_current(current, updates):
     return adjusted
 
 
+def _room_adjust_request_kwargs(current_mode, target_mode, current):
+    """Build keyword args for room adjust requests."""
+    kwargs = {"mode": target_mode}
+    if (
+        current_mode == "auto-save"
+        and target_mode == "auto-save"
+        and current.get("cool_flg") in (0, 1)
+    ):
+        kwargs["current_cool_flg"] = current["cool_flg"]
+    return kwargs
+
+
 # ---------------------------------------------------------------------------
 # Apply KV -> Aircon
 # ---------------------------------------------------------------------------
 
-def _apply_power_off(power_client, current_mode):
+def _apply_power_off(power_client, current_mode, feed_wdt=None):
     """Turn off aircon power.  Skips if already off or mode unknown."""
     if current_mode is None:
         print("power off skipped: current mode unknown")
@@ -119,33 +136,46 @@ def _apply_power_off(power_client, current_mode):
     if is_power_off(current_mode):
         print("power already off")
         return
+    _feed_watchdog(feed_wdt)
     power_client.power_off()
     print("power off executed")
 
 
-def _apply_power_on_and_settings(client, power_client, current, config):
+def _apply_power_on_and_settings(client, power_client, current, config, feed_wdt=None):
     """Turn on aircon power then unconditionally apply all KV settings."""
+    _feed_watchdog(feed_wdt)
     power_client.power_on()
     print("power on executed")
 
     target_mode = config.mode
-    if target_mode == "auto-steady":
-        client.set_auto_steady()
-        print("mode set -> auto-steady")
+    if target_mode == "heat":
+        _feed_watchdog(feed_wdt)
+        client.set_heat()
+        print("mode set -> heat")
+    elif target_mode == "cool":
+        _feed_watchdog(feed_wdt)
+        client.set_cool()
+        print("mode set -> cool")
     elif target_mode == "auto-save":
+        _feed_watchdog(feed_wdt)
         client.set_auto_save()
         print("mode set -> auto-save")
 
+    _feed_watchdog(feed_wdt)
     client.set_base_temp(config.base_temp)
     print(f"base temp set -> {config.base_temp}")
 
     if config.rooms:
         new_adjust = build_adjust_from_current(current, config.rooms)
-        client.set_room_adjust(new_adjust)
+        _feed_watchdog(feed_wdt)
+        client.set_room_adjust(
+            new_adjust,
+            **_room_adjust_request_kwargs(current["mode"], target_mode, current),
+        )
         print("room offsets set")
 
 
-def _apply_mode_and_temps(client, current, config):
+def _apply_mode_and_temps(client, current, config, feed_wdt=None):
     """Apply mode / base-temp / room-offset changes (both sides powered on)."""
     current_mode = current["mode"]
     current_base_temp = current["base_temp"]
@@ -155,10 +185,16 @@ def _apply_mode_and_temps(client, current, config):
     if current_mode is None:
         print("mode unchanged (current mode unknown, skipped)")
     elif current_mode != target_mode:
-        if target_mode == "auto-steady":
-            client.set_auto_steady()
-            print("mode changed -> auto-steady")
+        if target_mode == "heat":
+            _feed_watchdog(feed_wdt)
+            client.set_heat()
+            print("mode changed -> heat")
+        elif target_mode == "cool":
+            _feed_watchdog(feed_wdt)
+            client.set_cool()
+            print("mode changed -> cool")
         elif target_mode == "auto-save":
+            _feed_watchdog(feed_wdt)
             client.set_auto_save()
             print("mode changed -> auto-save")
     else:
@@ -168,6 +204,7 @@ def _apply_mode_and_temps(client, current, config):
     if current_base_temp is None:
         print("base temp unchanged (current temp unknown, skipped)")
     elif current_base_temp != config.base_temp:
+        _feed_watchdog(feed_wdt)
         client.set_base_temp(config.base_temp)
         print(f"base temp changed -> {config.base_temp}")
     else:
@@ -183,13 +220,17 @@ def _apply_mode_and_temps(client, current, config):
         if changed_rooms:
             print("changed rooms: " + ", ".join(changed_rooms))
             new_adjust = build_adjust_from_current(current, config.rooms)
-            client.set_room_adjust(new_adjust)
+            _feed_watchdog(feed_wdt)
+            client.set_room_adjust(
+                new_adjust,
+                **_room_adjust_request_kwargs(current_mode, target_mode, current),
+            )
             print("room offsets changed")
         else:
             print("room offsets unchanged")
 
 
-def apply_kv_to_aircon(client, power_client, current, config):
+def apply_kv_to_aircon(client, power_client, current, config, feed_wdt=None):
     """Apply KV config to aircon (power, mode, base_temp, room offsets).
 
     * Power off  -> just turn off; skip base_temp / rooms.
@@ -200,21 +241,23 @@ def apply_kv_to_aircon(client, power_client, current, config):
     target_mode = config.mode
 
     if is_power_off(target_mode):
-        _apply_power_off(power_client, current_mode)
+        _apply_power_off(power_client, current_mode, feed_wdt=feed_wdt)
         return
 
     if current_mode is not None and is_power_off(current_mode):
-        _apply_power_on_and_settings(client, power_client, current, config)
+        _apply_power_on_and_settings(
+            client, power_client, current, config, feed_wdt=feed_wdt
+        )
         return
 
-    _apply_mode_and_temps(client, current, config)
+    _apply_mode_and_temps(client, current, config, feed_wdt=feed_wdt)
 
 
 # ---------------------------------------------------------------------------
 # Update Aircon -> KV
 # ---------------------------------------------------------------------------
 
-def _update_kv_from_aircon(kv_result, current, kv_client):
+def _update_kv_from_aircon(kv_result, current, kv_client, feed_wdt=None):
     """Write current aircon state back to KV.
 
     When the aircon is powered off, only mode is written;
@@ -227,6 +270,7 @@ def _update_kv_from_aircon(kv_result, current, kv_client):
         return
 
     if is_power_off(current_mode):
+        _feed_watchdog(feed_wdt)
         kv_client.update_current_settings(
             raw_data=kv_result.raw_data,
             current_state=current,
@@ -239,6 +283,7 @@ def _update_kv_from_aircon(kv_result, current, kv_client):
         print("KV update skipped: aircon base temp unknown")
         return
 
+    _feed_watchdog(feed_wdt)
     kv_client.update_current_settings(
         raw_data=kv_result.raw_data,
         current_state=current,
@@ -250,14 +295,16 @@ def _update_kv_from_aircon(kv_result, current, kv_client):
 # Single sync iteration
 # ---------------------------------------------------------------------------
 
-def run_once(state, client, power_client, kv_client):
+def run_once(state, client, power_client, kv_client, feed_wdt=None):
     """Execute one sync iteration."""
+    _feed_watchdog(feed_wdt)
     current = client.get_current_state()
     print(
         f"aircon state: mode={current['mode']}"
         f" base_temp={current['base_temp']}"
     )
 
+    _feed_watchdog(feed_wdt)
     kv_result = kv_client.fetch_config()
     process_time = kv_result.process_time
     config = kv_result.config
@@ -270,7 +317,9 @@ def run_once(state, client, power_client, kv_client):
                 f"(updatedAt={kv_result.updated_at} > "
                 f"last_process_time={state.last_process_time})"
             )
-            apply_kv_to_aircon(client, power_client, current, config)
+            apply_kv_to_aircon(
+                client, power_client, current, config, feed_wdt=feed_wdt
+            )
             recorded = settings_from_config(config)
         else:
             print(
@@ -278,7 +327,9 @@ def run_once(state, client, power_client, kv_client):
                 f"(updatedAt={kv_result.updated_at} <= "
                 f"last_process_time={state.last_process_time})"
             )
-            _update_kv_from_aircon(kv_result, current, kv_client)
+            _update_kv_from_aircon(
+                kv_result, current, kv_client, feed_wdt=feed_wdt
+            )
             recorded = settings_from_aircon(current)
     else:
         print("settings unchanged")
